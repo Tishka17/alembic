@@ -1463,9 +1463,9 @@ def _compare_table_check_constraints(
     for obj in common_constraints:
         old = metadata_constraints[obj]
         new = conn_constraints[obj]
-        if autogen_context.run_object_filters(
+        if _check_constraint_changed(old, new) and autogen_context.run_object_filters(
                 old, obj, "check_constraint", False, new,
-        ) and _check_constraint_changed(old, new):
+        ):
             modify_ops.ops.append(ops.DropConstraintOp(
                 constraint_name=obj,
                 table_name=tname,
@@ -1481,6 +1481,7 @@ def _compare_table_check_constraints(
             modify_ops.ops.append(
                 ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
             )
+
 
 def _check_constraint_changed(old, new):
     return False   # not implemented
