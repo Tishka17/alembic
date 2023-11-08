@@ -1414,11 +1414,20 @@ def _compare_table_check_constraints(
         if isinstance(cons, sa_schema.CheckConstraint)
     }
     # 2. get constraints from connection
+    supports_check_constraints = False
+    conn_constraints = {}
     inspector = autogen_context.inspector
-    conn_constraints = {
-        cons["name"]: cons
-        for cons in inspector.get_check_constraints(tname, schema=schema)
-    }
+    if hasattr(inspector, "get_check_constraints"):
+        try:
+            conn_constraints = {
+                cons["name"]: cons
+                for cons in inspector.get_check_constraints(tname, schema=schema)
+            }
+            supports_check_constraints = True
+        except NotImplementedError:
+            pass
+    if not supports_check_constraints:
+        return  # we cannot coimpare constraints if we do not support them
 
     # 3. make operations
     added_constraints = sorted(metadata_constraints.keys() - conn_constraints.keys())
