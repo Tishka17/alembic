@@ -1421,16 +1421,43 @@ def _compare_table_check_constraints(
     }
 
     # 3. make operations
-    added_constraints = metadata_constraints.keys() - conn_constraints.keys()
-    removed_constraints = conn_constraints.keys() - metadata_constraints.keys()
-    common_constraints = metadata_constraints.keys() & conn_constraints.keys()
+    added_constraints = sorted(metadata_constraints.keys() - conn_constraints.keys())
+    removed_constraints = sorted(conn_constraints.keys() - metadata_constraints.keys())
+    common_constraints = sorted(metadata_constraints.keys() & conn_constraints.keys())
     for obj in added_constraints:
-        modify_ops.ops.append(
-            ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
-        )
+        new = metadata_constraints[obj]
+        if autogen_context.run_object_filters(
+                new, obj, "check_constraint", False, None,
+        ):
+            modify_ops.ops.append(
+                ops.CreateCheckConstraintOp.from_constraint(new)
+            )
     for obj in removed_constraints:
-        modify_ops.ops.append(
-            ops.DropConstraintOp(
+        old = conn_constraints[obj]
+        if autogen_context.run_object_filters(
+                old, obj, "check_constraint", True, None,
+        ):
+            modify_ops.ops.append(
+                ops.DropConstraintOp(
+                    constraint_name=obj,
+                    table_name=tname,
+                    type_="check",
+                    schema=schema,
+                    _reverse=ops.CreateCheckConstraintOp(
+                        constraint_name=obj,
+                        table_name=tname,
+                        schema=schema,
+                        condition=old["sqltext"],
+                    ),
+                )
+            )
+    for obj in common_constraints:
+        old = metadata_constraints[obj]
+        new = conn_constraints[obj]
+        if autogen_context.run_object_filters(
+                old, obj, "check_constraint", False, new,
+        ) and _check_constraint_changed(old, new):
+            modify_ops.ops.append(ops.DropConstraintOp(
                 constraint_name=obj,
                 table_name=tname,
                 type_="check",
@@ -1441,5 +1468,10 @@ def _compare_table_check_constraints(
                     schema=schema,
                     condition=conn_constraints[obj]["sqltext"],
                 ),
+            ))
+            modify_ops.ops.append(
+                ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
             )
-        )
+
+def _check_constraint_changed(old, new):
+    return False   # not implemented
