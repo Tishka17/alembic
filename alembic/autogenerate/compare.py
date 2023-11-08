@@ -1392,3 +1392,34 @@ def _compare_table_comment(
                 schema=schema,
             )
         )
+
+@comparators.dispatch_for("table")
+def _compare_table_check_constraints(
+    autogen_context: AutogenContext,
+    modify_ops: ModifyTableOps,
+    schema: Optional[str],
+    tname: Union[quoted_name, str],
+    conn_table: Optional[Table],
+    metadata_table: Optional[Table],
+) -> None:
+    # 1. get constraints from metadata
+    metadata_constraints = {
+        cons.name: cons
+        for cons in metadata_table.constraints
+        if isinstance(cons, sa_schema.CheckConstraint)
+    }
+    # 2. get constraints from connection
+    inspector = autogen_context.inspector
+    conn_constraints = {
+        cons["name"]: cons
+        for cons in inspector.get_check_constraints(tname, schema=schema)
+    }
+
+    # 3. make operations
+    added_constraints = metadata_constraints.keys() - conn_constraints.keys()
+    removed_constraints = conn_constraints.keys() - metadata_constraints.keys()
+    common_constraints = metadata_constraints.keys() & conn_constraints.keys()
+    for obj in added_constraints:
+        modify_ops.ops.append(
+            ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
+        )
