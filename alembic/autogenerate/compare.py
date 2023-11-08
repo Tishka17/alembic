@@ -1423,3 +1423,18 @@ def _compare_table_check_constraints(
         modify_ops.ops.append(
             ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
         )
+    for obj in removed_constraints:
+        modify_ops.ops.append(
+            ops.DropConstraintOp(
+                constraint_name=obj,
+                table_name=tname,
+                type_="check",
+                schema=schema,
+                _reverse=ops.CreateCheckConstraintOp(
+                    constraint_name=obj,
+                    table_name=tname,
+                    schema=schema,
+                    condition=conn_constraints[obj]["sqltext"],
+                ),
+            )
+        )
