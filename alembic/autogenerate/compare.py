@@ -1402,6 +1402,11 @@ def _compare_table_check_constraints(
     conn_table: Optional[Table],
     metadata_table: Optional[Table],
 ) -> None:
+    is_create_table = conn_table is None
+    is_drop_table = metadata_table is None
+    if is_create_table or is_drop_table:
+        return
+
     # 1. get constraints from metadata
     metadata_constraints = {
         cons.name: cons
