@@ -1392,3 +1392,96 @@ def _compare_table_comment(
                 schema=schema,
             )
         )
+
+@comparators.dispatch_for("table")
+def _compare_table_check_constraints(
+    autogen_context: AutogenContext,
+    modify_ops: ModifyTableOps,
+    schema: Optional[str],
+    tname: Union[quoted_name, str],
+    conn_table: Optional[Table],
+    metadata_table: Optional[Table],
+) -> None:
+    is_create_table = conn_table is None
+    is_drop_table = metadata_table is None
+    if is_create_table or is_drop_table:
+        return
+
+    # 1. get constraints from metadata
+    metadata_constraints = {
+        cons.name: cons
+        for cons in metadata_table.constraints
+        if isinstance(cons, sa_schema.CheckConstraint)
+    }
+    # 2. get constraints from connection
+    supports_check_constraints = False
+    conn_constraints = {}
+    inspector = autogen_context.inspector
+    if hasattr(inspector, "get_check_constraints"):
+        try:
+            conn_constraints = {
+                cons["name"]: cons
+                for cons in inspector.get_check_constraints(tname, schema=schema)
+            }
+            supports_check_constraints = True
+        except NotImplementedError:
+            pass
+    if not supports_check_constraints:
+        return  # we cannot coimpare constraints if we do not support them
+
+    # 3. make operations
+    added_constraints = sorted(metadata_constraints.keys() - conn_constraints.keys())
+    removed_constraints = sorted(conn_constraints.keys() - metadata_constraints.keys())
+    common_constraints = sorted(metadata_constraints.keys() & conn_constraints.keys())
+    for obj in added_constraints:
+        new = metadata_constraints[obj]
+        if autogen_context.run_object_filters(
+                new, obj, "check_constraint", False, None,
+        ):
+            modify_ops.ops.append(
+                ops.CreateCheckConstraintOp.from_constraint(new)
+            )
+    for obj in removed_constraints:
+        old = conn_constraints[obj]
+        if autogen_context.run_object_filters(
+                old, obj, "check_constraint", True, None,
+        ):
+            modify_ops.ops.append(
+                ops.DropConstraintOp(
+                    constraint_name=obj,
+                    table_name=tname,
+                    type_="check",
+                    schema=schema,
+                    _reverse=ops.CreateCheckConstraintOp(
+                        constraint_name=obj,
+                        table_name=tname,
+                        schema=schema,
+                        condition=old["sqltext"],
+                    ),
+                )
+            )
+    for obj in common_constraints:
+        old = metadata_constraints[obj]
+        new = conn_constraints[obj]
+        if _check_constraint_changed(old, new) and autogen_context.run_object_filters(
+                old, obj, "check_constraint", False, new,
+        ):
+            modify_ops.ops.append(ops.DropConstraintOp(
+                constraint_name=obj,
+                table_name=tname,
+                type_="check",
+                schema=schema,
+                _reverse=ops.CreateCheckConstraintOp(
+                    constraint_name=obj,
+                    table_name=tname,
+                    schema=schema,
+                    condition=conn_constraints[obj]["sqltext"],
+                ),
+            ))
+            modify_ops.ops.append(
+                ops.CreateCheckConstraintOp.from_constraint(metadata_constraints[obj])
+            )
+
+
+def _check_constraint_changed(old, new):
+    return False   # not implemented

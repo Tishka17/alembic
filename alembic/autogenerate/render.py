@@ -394,8 +394,24 @@ def _add_pk_constraint(constraint, autogen_context):
 
 
 @renderers.dispatch_for(ops.CreateCheckConstraintOp)
-def _add_check_constraint(constraint, autogen_context):
-    raise NotImplementedError()
+def _add_check_constraint(autogen_context, constraint):
+    prefix = _alembic_autogenerate_prefix(autogen_context)
+    name = _render_gen_name(autogen_context, constraint.constraint_name)
+    schema = _ident(constraint.schema) if constraint.schema else None
+    type_ = _ident(constraint.constraint_type) if constraint.constraint_type else None
+
+    params_strs = []
+    params_strs.append(repr(name))
+    if not autogen_context._has_batch:
+        params_strs.append(repr(_ident(constraint.table_name)))
+        if schema is not None:
+            params_strs.append(f"schema={schema!r}")
+
+    condition = _render_potential_expr(
+        constraint.condition, autogen_context, wrap_in_text=False
+    )
+    params_strs.append(f"condition={condition}")
+    return f"{prefix}create_check_constraint({', '.join(params_strs)})"
 
 
 @renderers.dispatch_for(ops.DropConstraintOp)
